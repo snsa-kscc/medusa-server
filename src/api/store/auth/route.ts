@@ -10,7 +10,20 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const dataObj = objectToAuthDataMap(data);
   const user = await validator.validate(dataObj);
 
-  console.log(user);
+  const manager = req.scope.resolve("manager");
+  const customerService = req.scope.resolve("customerService");
+
+  let customer = await customerService.retrieveByPhone(user.id.toString()).catch(() => null);
+
+  if (!customer) {
+    customer = await customerService.withTransaction(manager).create({
+      email: `${user.username}@telegram.user`,
+      phone: user.id.toString(),
+      first_name: user.first_name,
+      last_name: user.last_name,
+      has_account: true,
+    });
+  }
 
   return res.json({ ok: true });
 }
