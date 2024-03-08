@@ -1,6 +1,8 @@
 import { MedusaRequest, MedusaResponse } from "@medusajs/medusa";
 import { objectToAuthDataMap, AuthDataValidator } from "@telegram-auth/server";
 
+import jwt from "jsonwebtoken";
+
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const validator = new AuthDataValidator({
     botToken: process.env.BOT_TOKEN,
@@ -24,6 +26,9 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       has_account: true,
     });
   }
+
+  const { projectConfig } = req.scope.resolve("configModule");
+  req.session.jwt_store = jwt.sign({ customer_id: customer.id }, projectConfig.jwt_secret!, { expiresIn: "30d" });
 
   return res.json({ ok: true });
 }
