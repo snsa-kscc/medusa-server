@@ -28,7 +28,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   }
 
   const { projectConfig } = req.scope.resolve("configModule");
-  req.session.jwt_store = jwt.sign({ customer_id: customer.id }, projectConfig.jwt_secret!, { expiresIn: "30d" });
+  req.session.jwt_store = jwt.sign({ customer_id: customer.id, domain: "store" }, projectConfig.jwt_secret!, { expiresIn: "30d" });
 
-  return res.json({ ok: true });
+  return res.status(200).json({ token: req.session.jwt_store });
 }
