@@ -10,19 +10,23 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
 
   const data = await req.body;
   const dataObj = objectToAuthDataMap(data);
-  const user = await validator.validate(dataObj);
+  const telegramUser = await validator.validate(dataObj);
 
   const manager = req.scope.resolve("manager");
   const customerService = req.scope.resolve("customerService");
+  const customerGroupService = req.scope.resolve("customerGroupService");
 
-  let customer = await customerService.retrieveByPhone(user.id.toString()).catch(() => null);
+  const result1 = await customerGroupService.retrieve("cgrp_01HS6TK3W02RHWXVPSFMNS2DNS", { relations: ["customers"] });
+  const result2 = await customerService.retrieve("cus_01HS73G7RM7S6188808B213NBB", { relations: ["groups"] });
+
+  let customer = await customerService.retrieveByPhone(telegramUser.id.toString()).catch(() => null);
 
   if (!customer) {
     customer = await customerService.withTransaction(manager).create({
-      email: `${user.username}@telegram.user`,
-      phone: user.id.toString(),
-      first_name: user.first_name,
-      last_name: user.last_name,
+      email: `${telegramUser.username}@telegram.telegramUser`,
+      phone: telegramUser.id.toString(),
+      first_name: telegramUser.first_name,
+      last_name: telegramUser.last_name,
       has_account: true,
     });
   }
