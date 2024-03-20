@@ -4,10 +4,18 @@ import TelegramBot from "node-telegram-bot-api";
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   const botToken = process.env.BOT_TOKEN;
   const bot = new TelegramBot(botToken, { polling: true });
-  const chatId = -4103272837;
+  const vipChatId = -4103272837;
+  const plebsChatId = -4175941182;
 
-  const result = await bot.getChatMember(chatId, 7127931618);
-  console.log(result);
+  const telegramGroups = process.env.TELEGRAM_GROUPS;
+
+  for (const group of telegramGroups.split(",")) {
+    const result = await bot.getChatMember(group.trim(), 7127931618).catch(() => null);
+    if (result && (result.status === "creator" || result.status === "administrator" || result.status === "member")) {
+      console.log(group, result.status);
+      break;
+    }
+  }
 
   return res.status(200).json({ status: "ok" });
 }
