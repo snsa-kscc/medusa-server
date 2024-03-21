@@ -17,6 +17,10 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
   //     break;
   //   }
   // }
+  const customerGroupService = req.scope.resolve("customerGroupService");
+  const groupIdArray = await customerGroupService.list({}, { select: ["id", "name"] });
+
+  console.log(groupIdArray);
 
   const groups = telegramGroups.split(",").map((group) => group.trim());
 

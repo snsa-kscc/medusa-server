@@ -10,36 +10,36 @@ const validator = new AuthDataValidator({
   botToken,
 });
 
+const telegramArray = telegramGroups.split(",").map((group) => group.trim());
+const statuses = {
+  creator: true,
+  administrator: true,
+  member: true,
+  restricted: true,
+};
+let customer = null;
+
 export async function POST(req: MedusaRequest, res: MedusaResponse) {
   try {
     const data = await req.body;
     const dataObj = objectToAuthDataMap(data);
     const telegramUser = await validator.validate(dataObj);
-
     const manager = req.scope.resolve("manager");
     const customerService = req.scope.resolve("customerService");
     const customerGroupService = req.scope.resolve("customerGroupService");
 
-    const result1 = await customerGroupService.retrieve("cgrp_01HS6TK3W02RHWXVPSFMNS2DNS", { relations: ["customers"] });
+    const customerGroups = await customerGroupService.list();
+    const customerGroupsMap = customerGroups.reduce((acc, group) => {
+      acc[group.name] = group.id;
+      return acc;
+    }, {});
 
-    const telegramArray = telegramGroups.split(",").map((group) => group.trim());
+    for (const telegramGroup of telegramArray) {
+      const { title } = await bot.getChat(telegramGroup);
+      const chatMember = await bot.getChatMember(telegramGroup, telegramUser.id).catch(() => null);
 
-    const statuses = {
-      creator: true,
-      administrator: true,
-      member: true,
-      restricted: true,
-    };
-
-    let customer = null;
-    for (const group of telegramArray) {
-      const { title } = await bot.getChat(group);
-
-      const result = await bot.getChatMember(group, telegramUser.id).catch(() => null);
-
-      if (result && statuses[result.status]) {
-        // TODO: suboptimal code, hits the database multiple times
-        customer = await customerService.retrieveByPhone(telegramUser.id.toString()).catch(() => null);
+      if (chatMember && statuses[chatMember.status]) {
+        customer = await customerService.retrieveByPhone(telegramUser.id.toString(), { relations: ["groups"] }).catch(() => null);
 
         if (!customer) {
           customer = await customerService.withTransaction(manager).create({
@@ -50,9 +50,14 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
             has_account: true,
           });
         }
-        const { groups } = await customerService.retrieve(customer.id, { relations: ["groups"] });
-        const groupIdArray = await customerGroupService.list({ name: title }, { select: ["id"] });
-        groups.every((group) => group.name !== title) && (await customerGroupService.addCustomers(groupIdArray[0].id, [customer.id]));
+
+        customer.groups.every((group) => group.name !== title) &&
+          (await customerGroupService.withTransaction(manager).addCustomers(customerGroupsMap[title], [customer.id]));
+      } else if (chatMember && !statuses[chatMember.status]) {
+        const rejectedCustomer = await customerService.retrieveByPhone(telegramUser.id.toString(), { relations: ["groups"] });
+        if (rejectedCustomer.groups.find((group) => group.name === title)) {
+          await customerGroupService.withTransaction(manager).removeCustomer(customerGroupsMap[title], [rejectedCustomer.id]);
+        }
       }
     }
 
@@ -61,7 +66,7 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       req.session.jwt_store = jwt.sign({ customer_id: customer.id, domain: "store" }, projectConfig.jwt_secret!, { expiresIn: "30d" });
     }
 
-    //TODO: suboptimal code - unauthenticated route
+    //TODO: suboptimal code - missing unauthenticated route
     return res.status(200).json({ token: req.session.jwt_store });
   } catch (error) {
     return res.status(500).json({ error: error.message });
