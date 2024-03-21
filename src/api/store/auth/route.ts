@@ -11,13 +11,11 @@ class CustomerNotAuthorizedError extends Error {
 }
 
 const botToken = process.env.BOT_TOKEN;
-const telegramGroups = process.env.TELEGRAM_GROUPS;
 const bot = new TelegramBot(botToken, { polling: false });
 const validator = new AuthDataValidator({
   botToken,
 });
 
-const telegramArray = telegramGroups.split(",").map((group) => group.trim());
 const statuses = {
   creator: true,
   administrator: true,
@@ -36,12 +34,19 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
     const customerGroupService = req.scope.resolve("customerGroupService");
 
     const customerGroups = await customerGroupService.list();
+
     const customerGroupsMap = customerGroups.reduce((acc, group) => {
       acc[group.name] = group.id;
       return acc;
     }, {});
+    const telegramGroups = customerGroups.reduce((acc, customerGroup) => {
+      if (customerGroup.metadata && customerGroup.metadata.telegram_group) {
+        acc.push(customerGroup.metadata.telegram_group);
+      }
+      return acc;
+    }, []);
 
-    for (const telegramGroup of telegramArray) {
+    for (const telegramGroup of telegramGroups) {
       const { title } = await bot.getChat(telegramGroup);
       const chatMember = await bot.getChatMember(telegramGroup, telegramUser.id).catch(() => null);
 
