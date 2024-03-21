@@ -3,6 +3,13 @@ import { objectToAuthDataMap, AuthDataValidator } from "@telegram-auth/server";
 import TelegramBot from "node-telegram-bot-api";
 import jwt from "jsonwebtoken";
 
+class CustomerNotAuthorizedError extends Error {
+  constructor() {
+    super("Customer not authorized.");
+    this.name = "CustomerNotAuthorizedError";
+  }
+}
+
 const botToken = process.env.BOT_TOKEN;
 const telegramGroups = process.env.TELEGRAM_GROUPS;
 const bot = new TelegramBot(botToken, { polling: false });
@@ -61,14 +68,17 @@ export async function POST(req: MedusaRequest, res: MedusaResponse) {
       }
     }
 
-    const { projectConfig } = req.scope.resolve("configModule");
-    if (customer) {
-      req.session.jwt_store = jwt.sign({ customer_id: customer.id, domain: "store" }, projectConfig.jwt_secret!, { expiresIn: "30d" });
+    if (!customer) {
+      throw new CustomerNotAuthorizedError();
     }
+    const { projectConfig } = req.scope.resolve("configModule");
+    req.session.jwt_store = jwt.sign({ customer_id: customer.id, domain: "store" }, projectConfig.jwt_secret!, { expiresIn: "30d" });
 
-    //TODO: suboptimal code - missing unauthenticated route
     return res.status(200).json({ token: req.session.jwt_store });
   } catch (error) {
+    if (error instanceof CustomerNotAuthorizedError) {
+      return res.status(403).json({ error: error.message });
+    }
     return res.status(500).json({ error: error.message });
   }
 }
