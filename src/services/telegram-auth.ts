@@ -2,14 +2,8 @@ import { CustomerService, CustomerGroupService, TransactionBaseService, Customer
 import { EntityManager } from "typeorm";
 import { objectToAuthDataMap, AuthDataValidator } from "@telegram-auth/server";
 import TelegramBot, { ChatMember } from "node-telegram-bot-api";
-// import jwt from "jsonwebtoken";
 
-// class CustomerNotAuthorizedError extends Error {
-//   constructor() {
-//     super("Customer not authorized.");
-//     this.name = "CustomerNotAuthorizedError";
-//   }
-// }
+type Nullable<T> = T | null;
 
 class TelegramAuthService extends TransactionBaseService {
   protected manager_: EntityManager;
@@ -29,7 +23,7 @@ class TelegramAuthService extends TransactionBaseService {
     this.validator_ = new AuthDataValidator({ botToken: this.botToken_ });
   }
 
-  async processTelegramUser(data: any) {
+  async processTelegramUser(data) {
     const statuses = {
       creator: true,
       administrator: true,
@@ -39,12 +33,8 @@ class TelegramAuthService extends TransactionBaseService {
 
     const dataObj = objectToAuthDataMap(data);
     const telegramUser = await this.validator_.validate(dataObj);
-    const manager = this.manager_;
-    const customerService = this.customerService_;
-    const customerGroupService = this.customerGroupService_;
 
-    const customerGroups = await customerGroupService.list({}, {});
-
+    const customerGroups = await this.customerGroupService_.list({}, {});
     const customerGroupsMap = customerGroups.reduce((acc, group) => {
       acc[group.name] = group.id;
       return acc;
@@ -56,17 +46,17 @@ class TelegramAuthService extends TransactionBaseService {
       return acc;
     }, []);
 
-    let customer: Customer | null = null;
+    let customer: Nullable<Customer> = null;
 
     for (const telegramGroup of telegramGroups) {
       const { title } = await this.bot_.getChat(telegramGroup);
-      const chatMember: ChatMember | null = await this.bot_.getChatMember(telegramGroup, telegramUser.id).catch(() => null);
+      const chatMember: Nullable<ChatMember> = await this.bot_.getChatMember(telegramGroup, telegramUser.id).catch(() => null);
 
       if (chatMember && statuses[chatMember.status]) {
-        customer = await customerService.retrieveByPhone(telegramUser.id.toString(), { relations: ["groups"] }).catch(() => null);
+        customer = await this.customerService_.retrieveByPhone(telegramUser.id.toString(), { relations: ["groups"] }).catch(() => null);
 
         if (!customer) {
-          customer = await customerService.withTransaction(manager).create({
+          customer = await this.customerService_.withTransaction(this.manager_).create({
             email: `${telegramUser.username}@telegram.telegramUser`,
             phone: telegramUser.id.toString(),
             first_name: telegramUser.first_name,
@@ -76,18 +66,15 @@ class TelegramAuthService extends TransactionBaseService {
         }
 
         if (customer.groups.every((group) => group.name !== title)) {
-          await customerGroupService.withTransaction(manager).addCustomers(customerGroupsMap[title], [customer.id]);
+          await this.customerGroupService_.withTransaction(this.manager_).addCustomers(customerGroupsMap[title], [customer.id]);
         }
       } else if (chatMember && !statuses[chatMember.status]) {
-        const rejectedCustomer = await customerService.retrieveByPhone(telegramUser.id.toString(), { relations: ["groups"] });
+        const rejectedCustomer = await this.customerService_.retrieveByPhone(telegramUser.id.toString(), { relations: ["groups"] });
         if (rejectedCustomer.groups.find((group) => group.name === title)) {
-          await customerGroupService.withTransaction(manager).removeCustomer(customerGroupsMap[title], [rejectedCustomer.id]);
+          await this.customerGroupService_.withTransaction(this.manager_).removeCustomer(customerGroupsMap[title], [rejectedCustomer.id]);
         }
       }
     }
-    // if (!customer) {
-    //   throw new CustomerNotAuthorizedError();
-    // }
     return customer;
   }
 }
