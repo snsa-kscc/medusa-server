@@ -7,7 +7,6 @@ type Nullable<T> = T | null;
 
 class TelegramAuthService extends TransactionBaseService {
   protected manager_: EntityManager;
-  protected transactionManager_: EntityManager;
   private botToken_: string;
   private bot_: TelegramBot;
   private validator_: AuthDataValidator;
