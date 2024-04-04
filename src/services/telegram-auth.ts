@@ -33,6 +33,7 @@ class TelegramAuthService extends TransactionBaseService {
     const dataObj = objectToAuthDataMap(data);
     const telegramUser = await this.validator_.validate(dataObj);
 
+    //TODO - getTelegramGroup
     const customerGroups = await this.customerGroupService_.list({}, {});
     const customerGroupsMap = customerGroups.reduce((acc, group) => {
       acc[group.name] = group.id;
@@ -52,23 +53,25 @@ class TelegramAuthService extends TransactionBaseService {
       const chatMember: Nullable<ChatMember> = await this.bot_.getChatMember(telegramGroup, telegramUser.id).catch(() => null);
 
       if (chatMember && statuses[chatMember.status]) {
-        customer = await this.customerService_.retrieveByPhone(telegramUser.id.toString(), { relations: ["groups"] }).catch(() => null);
+        customer = await this.customerService_.retrieveRegisteredByEmail(`${telegramUser.id}@telegram.id`, { relations: ["groups"] }).catch(() => null);
 
         if (!customer) {
           customer = await this.customerService_.withTransaction(this.manager_).create({
-            email: `${telegramUser.username}@telegram.telegramUser`,
-            phone: telegramUser.id.toString(),
+            email: `${telegramUser.id}@telegram.id`,
             first_name: telegramUser.first_name,
             last_name: telegramUser.last_name,
+            phone: "",
             has_account: true,
           });
         }
 
-        if (customer.groups.every((group) => group.name !== title)) {
+        // TODO - add customer to group if not assigned
+        if (customer.groups ?? [].every((group) => group.name !== title)) {
           await this.customerGroupService_.withTransaction(this.manager_).addCustomers(customerGroupsMap[title], [customer.id]);
         }
+        // TODO - remove customer from group if not in telegram
       } else if (chatMember && !statuses[chatMember.status]) {
-        const rejectedCustomer = await this.customerService_.retrieveByPhone(telegramUser.id.toString(), { relations: ["groups"] });
+        const rejectedCustomer = await this.customerService_.retrieveRegisteredByEmail(`${telegramUser.id}@telegram.id`, { relations: ["groups"] });
         if (rejectedCustomer.groups.find((group) => group.name === title)) {
           await this.customerGroupService_.withTransaction(this.manager_).removeCustomer(customerGroupsMap[title], [rejectedCustomer.id]);
         }
