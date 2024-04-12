@@ -3,18 +3,22 @@ import { EntityManager } from "typeorm";
 import { objectToAuthDataMap, AuthDataValidator, TelegramUserData } from "@telegram-auth/server";
 import TelegramBot, { ChatMember } from "node-telegram-bot-api";
 
+// Define a generic for nullable values
 type Nullable<T> = T | null;
 
+// Define a mapping for customer groups
 type CustomerGroupsMap = {
   [groupName: string]: string;
 };
 
+// Define a custom type for customer groups including metadata
 type CustomCustomerGroup = CustomerGroup & {
   metadata: {
     telegram_group?: string;
   };
 };
 
+// Class responsible for managing Telegram authentication
 class TelegramAuthService extends TransactionBaseService {
   protected manager_: EntityManager;
   private botToken_: string;
@@ -23,6 +27,7 @@ class TelegramAuthService extends TransactionBaseService {
   private customerService_: CustomerService;
   private customerGroupService_: CustomerGroupService;
 
+  // Constructor to initialize the TelegramAuthService
   constructor(container) {
     super(container);
     this.botToken_ = process.env.BOT_TOKEN;
@@ -32,13 +37,15 @@ class TelegramAuthService extends TransactionBaseService {
     this.validator_ = new AuthDataValidator({ botToken: this.botToken_ });
   }
 
+  // Method to fetch Telegram user data
   async getTelegramUser(data): Promise<TelegramUserData> {
     const dataObj = objectToAuthDataMap(data);
     return await this.validator_.validate(dataObj);
   }
 
-  async getCustomerGroupsAndMap(customerGroupService: CustomerGroupService): Promise<{ customerGroupsMap: CustomerGroupsMap; telegramGroups: string[] }> {
-    const customerGroups = await customerGroupService.list({}, {});
+  // Method to fetch Medusa customer groups and map them
+  async getCustomerGroupsAndMap(): Promise<{ customerGroupsMap: CustomerGroupsMap; telegramGroups: string[] }> {
+    const customerGroups = await this.customerGroupService_.list({}, {});
 
     const customerGroupsMap: CustomerGroupsMap = customerGroups.reduce((acc: CustomerGroupsMap, group) => {
       acc[group.name] = group.id;
@@ -55,33 +62,24 @@ class TelegramAuthService extends TransactionBaseService {
     return { customerGroupsMap, telegramGroups };
   }
 
-  async addCustomerToGroupIfNeeded(
-    customer: Customer,
-    groupId: CustomerGroupsMap,
-    customerGroupService: CustomerGroupService,
-    manager: EntityManager,
-    title: string
-  ): Promise<void> {
+  // Method to add Medusa customer to a group if s/he is not already a group member
+  async addCustomerToGroup(customer: Customer, groupId: CustomerGroupsMap, title: string): Promise<void> {
     if (customer.groups ?? [].every((group) => group.name !== title)) {
-      await customerGroupService.withTransaction(manager).addCustomers(groupId[title], [customer.id]);
+      await this.customerGroupService_.withTransaction(this.manager_).addCustomers(groupId[title], [customer.id]);
     }
   }
 
-  async removeCustomerFromGroupIfNeeded(
-    customerService: CustomerService,
-    customerGroupService: CustomerGroupService,
-    manager: EntityManager,
-    groupId: CustomerGroupsMap,
-    title: string,
-    telegramUser: TelegramUserData
-  ): Promise<void> {
-    const rejectedCustomer = await customerService.retrieveRegisteredByEmail(`${telegramUser.id}@telegram.id`, { relations: ["groups"] });
+  // Method to remove Medusa customer from a group if s/he is a group member
+  async removeCustomerFromGroup(groupId: CustomerGroupsMap, title: string, telegramUser: TelegramUserData): Promise<void> {
+    const rejectedCustomer = await this.customerService_.retrieveRegisteredByEmail(`${telegramUser.id}@telegram.id`, { relations: ["groups"] });
     if (rejectedCustomer.groups.find((group) => group.name === title)) {
-      await customerGroupService.withTransaction(manager).removeCustomer(groupId[title], [rejectedCustomer.id]);
+      await this.customerGroupService_.withTransaction(this.manager_).removeCustomer(groupId[title], [rejectedCustomer.id]);
     }
   }
 
-  async processTelegramUser(data) {
+  // Method to process Telegram user data
+  async processTelegramUser(data): Promise<Nullable<Customer>> {
+    // Define user statuses that allow access
     const statuses = {
       creator: true,
       administrator: true,
@@ -89,36 +87,23 @@ class TelegramAuthService extends TransactionBaseService {
       restricted: true,
     };
 
-    // const dataObj = objectToAuthDataMap(data);
-    // const telegramUser = await this.validator_.validate(dataObj);
-
     const telegramUser = await this.getTelegramUser(data);
-
-    // const customerGroups = await this.customerGroupService_.list({}, {});
-
-    // const customerGroupsMap = customerGroups.reduce((acc, group) => {
-    //   acc[group.name] = group.id;
-    //   return acc;
-    // }, {});
-
-    // const telegramGroups: string[] = customerGroups.reduce((acc, customerGroup) => {
-    //   if (customerGroup.metadata && customerGroup.metadata.telegram_group) {
-    //     acc.push(customerGroup.metadata.telegram_group);
-    //   }
-    //   return acc;
-    // }, []);
-
-    const { customerGroupsMap, telegramGroups } = await this.getCustomerGroupsAndMap(this.customerGroupService_);
+    const { customerGroupsMap, telegramGroups } = await this.getCustomerGroupsAndMap();
 
     let customer: Nullable<Customer> = null;
 
     for (const telegramGroup of telegramGroups) {
+      // Get the title of the Telegram group
       const { title } = await this.bot_.getChat(telegramGroup);
+      // Get information about the user's membership in the Telegram group
       const chatMember: Nullable<ChatMember> = await this.bot_.getChatMember(telegramGroup, telegramUser.id).catch(() => null);
 
+      // Check if the user is a member of the Teleghram group and has an allowed status
       if (chatMember && statuses[chatMember.status]) {
+        // Retrieve a customer associated with the Telegram user
         customer = await this.customerService_.retrieveRegisteredByEmail(`${telegramUser.id}@telegram.id`, { relations: ["groups"] }).catch(() => null);
 
+        // Create a new customer if not found
         if (!customer) {
           customer = await this.customerService_.withTransaction(this.manager_).create({
             email: `${telegramUser.id}@telegram.id`,
@@ -129,16 +114,10 @@ class TelegramAuthService extends TransactionBaseService {
           });
         }
 
-        // if (customer.groups ?? [].every((group) => group.name !== title)) {
-        //   await this.customerGroupService_.withTransaction(this.manager_).addCustomers(customerGroupsMap[title], [customer.id]);
-        // }
-        await this.addCustomerToGroupIfNeeded(customer, customerGroupsMap, this.customerGroupService_, this.manager_, title);
+        await this.addCustomerToGroup(customer, customerGroupsMap, title);
+        // Check if the user is a member of the Teleghram group and doesn't have an allowed status
       } else if (chatMember && !statuses[chatMember.status]) {
-        // const rejectedCustomer = await this.customerService_.retrieveRegisteredByEmail(`${telegramUser.id}@telegram.id`, { relations: ["groups"] });
-        // if (rejectedCustomer.groups.find((group) => group.name === title)) {
-        //   await this.customerGroupService_.withTransaction(this.manager_).removeCustomer(customerGroupsMap[title], [rejectedCustomer.id]);
-        // }
-        await this.removeCustomerFromGroupIfNeeded(this.customerService_, this.customerGroupService_, this.manager_, customerGroupsMap, title, telegramUser);
+        await this.removeCustomerFromGroup(customerGroupsMap, title, telegramUser);
       }
     }
     return customer;
