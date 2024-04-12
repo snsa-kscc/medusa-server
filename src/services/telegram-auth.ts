@@ -98,7 +98,7 @@ class TelegramAuthService extends TransactionBaseService {
       // Get information about the user's membership in the Telegram group
       const chatMember: Nullable<ChatMember> = await this.bot_.getChatMember(telegramGroup, telegramUser.id).catch(() => null);
 
-      // Check if the user is a member of the Teleghram group and has an allowed status
+      // Check if the user is a member of the Telegram group and has an allowed status
       if (chatMember && statuses[chatMember.status]) {
         // Retrieve a customer associated with the Telegram user
         customer = await this.customerService_.retrieveRegisteredByEmail(`${telegramUser.id}@telegram.id`, { relations: ["groups"] }).catch(() => null);
@@ -115,7 +115,7 @@ class TelegramAuthService extends TransactionBaseService {
         }
 
         await this.addCustomerToGroup(customer, customerGroupsMap, title);
-        // Check if the user is a member of the Teleghram group and doesn't have an allowed status
+        // Check if the user is a member of the Telegram group and doesn't have an allowed status
       } else if (chatMember && !statuses[chatMember.status]) {
         await this.removeCustomerFromGroup(customerGroupsMap, title, telegramUser);
       }
