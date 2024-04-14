@@ -63,17 +63,17 @@ class TelegramAuthService extends TransactionBaseService {
   }
 
   // Method to add Medusa customer to a group if s/he is not already a group member
-  async addCustomerToGroup(customer: Customer, groupId: CustomerGroupsMap, title: string): Promise<void> {
+  async addCustomerToGroup(customer: Customer, groupsMap: CustomerGroupsMap, title: string): Promise<void> {
     if (customer.groups ?? [].every((group) => group.name !== title)) {
-      await this.customerGroupService_.withTransaction(this.manager_).addCustomers(groupId[title], [customer.id]);
+      await this.customerGroupService_.withTransaction(this.manager_).addCustomers(groupsMap[title], [customer.id]);
     }
   }
 
   // Method to remove Medusa customer from a group if s/he is a group member
-  async removeCustomerFromGroup(groupId: CustomerGroupsMap, title: string, telegramUser: TelegramUserData): Promise<void> {
+  async removeCustomerFromGroup(groupsMap: CustomerGroupsMap, title: string, telegramUser: TelegramUserData): Promise<void> {
     const rejectedCustomer = await this.customerService_.retrieveRegisteredByEmail(`${telegramUser.id}@telegram.id`, { relations: ["groups"] });
     if (rejectedCustomer.groups.find((group) => group.name === title)) {
-      await this.customerGroupService_.withTransaction(this.manager_).removeCustomer(groupId[title], [rejectedCustomer.id]);
+      await this.customerGroupService_.withTransaction(this.manager_).removeCustomer(groupsMap[title], [rejectedCustomer.id]);
     }
   }
 
